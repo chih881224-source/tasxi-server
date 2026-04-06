@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>司機接單系統</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #f0f0f0; margin: 0; padding: 10px; }
+        .order-card { background: white; border-radius: 8px; padding: 15px; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .btn-accept { background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; width: 100%; font-size: 18px; }
+        .fleet-tag { color: #007bff; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h2>司機在線 (等待中...)</h2>
+    <div id="order-list"></div>
+
+    <script>
+        // 替換成你剛剛在 Render 得到的網址
+        const socket = io("https://tasxi-server.onrender.com");
+
+        socket.on('new_order_announcement', (order) => {
+            const list = document.getElementById('order-list');
+            const card = document.createElement('div');
+            card.className = 'order-card';
+            card.innerHTML = `
+                <p class="fleet-tag">車隊：${order.fleetName}</p>
+                <p>單號：<b>${order.sn}</b></p>
+                <p>地址：${order.address}</p>
+                <p>起跳價：$${order.baseFare}</p>
+                <button class="btn-accept" onclick="accept('${order.sn}')">立即接單</button>
+            `;
+            list.prepend(card);
+            
+            // 舊手機相容的震動提醒 (如果硬體支援)
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        });
+
+        function accept(sn) {
+            const name = prompt("請輸入您的司機代號");
+            socket.emit('accept_order', { sn: sn, driverName: name });
+            alert("接單成功！正在開啟地圖...");
+            // 自動開啟 Google Map 導航 (相容所有手機)
+            window.location.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(sn)}`;
+        }
+    </script>
+</body>
+</html>

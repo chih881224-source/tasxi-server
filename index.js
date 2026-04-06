@@ -1,4 +1,3 @@
-// index.js
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -8,6 +7,10 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*" } // 讓所有裝置都能連線
+});
+// 讓伺服器知道怎麼找到 driver.html 檔案
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'driver.html'));
 });
 
 // 模擬不同車隊的費率設定
