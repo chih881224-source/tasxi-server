@@ -2,51 +2,78 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const axios = require('axios');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: "*" } // 讓所有裝置都能連線
-});
-// 讓伺服器知道怎麼找到 driver.html 檔案
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'driver.html'));
-});
+const io = new Server(server, { cors: { origin: "*" } });
 
-// 模擬不同車隊的費率設定
-const fleetConfigs = {
-  'EA': { name: 'KD車隊', base: 100, waitFee: 100 },
-  'EB': { name: '新動力車隊', base: 85, waitFee: 80 }
-};
+app.use(express.static(__dirname));
+
+// --- Google 試算表 ID 與 GID ---
+const SPREADSHEET_ID = '1cupiX2ly5H6x833tI1HfT0xznEnqK6f0UugrWPu6C6E';
+const GID_FLEET = '0';
+const GID_DRIVER = '1380542080';
+
+// 抓取試算表資料的工具
+async function getSheetData(gid) {
+    try {
+        const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${gid}`;
+        const res = await axios.get(url);
+        // 處理 CSV 的斷行與空格
+        const rows = res.data.replace(/\r/g, '').split('\n').map(row => row.split(','));
+        const headers = rows[0].map(h => h.trim());
+        return rows.slice(1).map(row => {
+            let obj = {};
+            headers.forEach((header, i) => obj[header] = row[i] ? row[i].trim() : '');
+            return obj;
+        });
+    } catch (e) {
+        console.error(`讀取分頁 ${gid} 失敗:`, e.message);
+        return [];
+    }
+}
 
 io.on('connection', (socket) => {
-  console.log('新裝置連線:', socket.id);
+    // 司機使用「司機編號」登入上線
+    socket.on('go_online', async (data) => {
+        const drivers = await getSheetData(GID_DRIVER);
+        // 比對「司機編號」欄位
+        const driverInfo = drivers.find(d => d['司機編號'] === data.driverId);
 
-  // 接收調度員發單
-  socket.on('send_order', (data) => {
-    // 根據單號前兩碼自動辨識車隊 (例如 EA/...)
-    const prefix = data.sn.split('/')[0];
-    const config = fleetConfigs[prefix] || { name: '未知車隊', base: 0 };
-    
-    const orderWithInfo = {
-      ...data,
-      fleetName: config.name,
-      baseFare: config.base,
-      timestamp: new Date().toLocaleTimeString()
-    };
+        if (driverInfo) {
+            socket.join('online_drivers');
+            socket.driverId = data.driverId; 
+            socket.driverName = driverInfo['名稱'];
+            console.log(`✅ 司機上線成功: ${socket.driverName} (${socket.driverId})`);
+            socket.emit('login_result', { success: true, info: driverInfo });
+        } else {
+            console.log(`❌ 登入失敗，找不到編號: ${data.driverId}`);
+            socket.emit('login_result', { success: false, msg: '找不到該司機編號，請確認試算表內容' });
+        }
+    });
 
-    console.log(`發送訂單: ${data.sn} 屬於 ${config.name}`);
-    // 廣播給所有在線司機
-    io.emit('new_order_announcement', orderWithInfo);
-  });
+    // 派單邏輯
+    socket.on('send_order', async (orderData) => {
+        const fleets = await getSheetData(GID_FLEET);
+        const prefix = orderData.sn.split('/')[0];
+        const fleetInfo = fleets.find(f => f['開頭'] === prefix);
 
-  // 司機回傳接單訊息
-  socket.on('accept_order', (data) => {
-    io.emit('order_taken_notice', { sn: data.sn, driver: data.driverName });
-  });
+        const finalOrder = {
+            ...orderData,
+            fleetName: fleetInfo ? fleetInfo['車隊名稱'] : '未知車隊',
+            baseFare: fleetInfo ? fleetInfo['起跳價'] : 0,
+            time: new Date().toLocaleTimeString('zh-TW', { hour12: false })
+        };
+        io.to('online_drivers').emit('new_order', finalOrder);
+    });
+
+    // 接單邏輯
+    socket.on('accept_order', (data) => {
+        // 廣播這張單已經被接走，並帶上接單司機的名字
+        io.emit('order_taken', { sn: data.sn, driver: data.driverName });
+    });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`伺服器運行中，通訊埠：${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

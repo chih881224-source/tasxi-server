@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>後台派單系統</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body { padding: 20px; font-family: sans-serif; }
+        input { display: block; width: 100%; margin: 10px 0; padding: 10px; box-sizing: border-box; }
+        button { background: #007bff; color: white; border: none; padding: 15px; width: 100%; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h2>📝 手動發單</h2>
+    <input type="text" id="sn" placeholder="單號 (例如: EA/12345)">
+    <input type="text" id="address" placeholder="乘客地址">
+    <input type="text" id="note" placeholder="備註 (如: 樓下等)">
+    <button onclick="send()">發送至所有司機</button>
+
+    <script>
+        const socket = io();
+        function send() {
+            const data = {
+                sn: document.getElementById('sn').value,
+                address: document.getElementById('address').value,
+                note: document.getElementById('note').value
+            };
+            socket.emit('send_order', data);
+            alert("訂單已廣播！");
+        }
+    </script>
+</body>
+</html>
